@@ -71,23 +71,59 @@ int HMMprint(char *mn)
 void forward_algo()
 {
 	int		i, j, k, n;
+	double sum; // add sum.
+	total_log_lik = 0.0; // Reset total_log_lik for iteration.
 
 	for (n = 0; n < MAXSAMPLE; n++)
 	{
+		// skip samples that have not been loaded.
+		if (maxlen[n] == 0) continue;
+
+		sum = 0.0 // initalize sum for scaling.
 		for (i = 0; i < MAXSTATE; i++)
 		{
-//			.....
+//			.....  added.
+            // textbook formula(4.14)
+			alpha[n][0][i] = pi[i] * b[i][o[n][0]];
+			sum += alpha[n][0][i]; // accumulate probabilities.
 		}
+
+		// === Calculate scaling factor ===
+		scale[n][0] = 1.0 / sum; // Calc scaling coefficient.
+		total_log_lik += log(sum);
+
+		for (i=0; i < MAXSTATE; i++)
+		{
+			// normalize alpha.
+			alpha[n][0][i] *= scale[n][0];
+		}
+		// ================================
 	}
 
 	for (n = 0; n < MAXSAMPLE; n++)
 	{
+		if(maxlen[n] == 0) continue;
 		for (k = 0; k + 1 < maxlen[n]; k++)
 		{
+			sum = 0.0; // reset sum for the next time step.
 			for (j = 0; j < MAXSTATE; j++)
 			{
-//				.....
+//				.....  added.
+                // Textbook formula(4.15).
+				tmp += alpha[n][k][i] * a[i][j];
 			}
+			// Multiply by output probability at time k+1.
+			alpha[n][k+1][j] = tmp * b[j][o[n][k+1]];
+			sum += alpha[n][k+1][j];    // accumulate for scaling.
+		}
+		// Calculate and apply scaling factor for k+1.
+		scale[n][k+1] = 1.0 / sum;
+		total_log_lik += log(sum);
+
+		for (j = 0; j < MAXSTATE; j++)
+		{
+			// Normalize alpha.
+			alpha[n][k+1][j] *= scale[n][k+1];
 		}
 	}
 }
@@ -98,6 +134,8 @@ void backward_algo()
 
 	for (n = 0; n < MAXSAMPLE; n++)
 	{
+		
+
 		for (i = 0; i < MAXSTATE; i++)
 		{
 //			.....
