@@ -2,12 +2,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>    // for srand().
 
 #define	MAXSAMPLE	1000
-#define	MAXSTATE	6    // Change 4 -> 6
+#define	MAXSTATE	6     // 4 -> 6.
 #define	MAXSYMBOL	10
 #define	MAXLEN		512
 #define	ERROR		0.01
+#define MIN_PROB	1e-100    // small value to avoid divison by zero.
 
 /*
 a[i][j] : transition probability from the state i to j
@@ -30,8 +32,9 @@ double	alpha[MAXSAMPLE][MAXLEN][MAXSTATE];
 double	beta[MAXSAMPLE][MAXLEN][MAXSTATE];
 double	c[MAXSAMPLE][MAXLEN][MAXSTATE][MAXSTATE];
 int	o[MAXSAMPLE][MAXLEN];
-long totalLen = 0;    // count totalLen for BIC.
-int step = 0;    // count step.
+double scale[MAXSAMPLE][MAXLEN];    // scale value.
+double total_log_lik;    
+double gamma_val[MAXSAMPLE][MAXLEN][MAXSTATE];
 
 int HMMprint(char *mn)
 {
@@ -46,7 +49,7 @@ int HMMprint(char *mn)
 		printf("markov file write open error : %s\n", markovname);
 		exit(0);
 	}
-	for (i = 0; i < states; i++)
+	for (i = 0; i < MAXSTATE; i++)
 	{
 		fprintf(markovfile, "State %c %g\n", i + 'A', pi[i]);
 		fprintf(markovfile, "Output");
@@ -56,7 +59,7 @@ int HMMprint(char *mn)
 		}
 		fprintf(markovfile, "\n");
 		fprintf(markovfile, "Transition");
-		for (j = 0; j < states; j++)
+		for (j = 0; j < MAXSTATE; j++)
 		{
 			fprintf(markovfile, " %g", a[i][j]);
 		}
@@ -68,34 +71,59 @@ int HMMprint(char *mn)
 void forward_algo()
 {
 	int		i, j, k, n;
+	double sum; // add sum.
+	total_log_lik = 0.0; // Reset total_log_lik for iteration.
 
 	for (n = 0; n < MAXSAMPLE; n++)
 	{
-		for (i = 0; i < states; i++)
+		// skip samples that have not been loaded.
+		if (maxlen[n] == 0) continue;
+
+		sum = 0.0 // initalize sum for scaling.
+		for (i = 0; i < MAXSTATE; i++)
 		{
-//			.....
-			// Initialize.
-			if (maxlen[n] > 0) {
-				alpha[n][0][i] = pi[i] * b[i][o[n][0]];
-			}
-			
+//			.....  added.
+            // textbook formula(4.14)
+			alpha[n][0][i] = pi[i] * b[i][o[n][0]];
+			sum += alpha[n][0][i]; // accumulate probabilities.
 		}
+
+		// === Calculate scaling factor ===
+		scale[n][0] = 1.0 / sum; // Calc scaling coefficient.
+		total_log_lik += log(sum);
+
+		for (i=0; i < MAXSTATE; i++)
+		{
+			// normalize alpha.
+			alpha[n][0][i] *= scale[n][0];
+		}
+		// ================================
 	}
 
 	for (n = 0; n < MAXSAMPLE; n++)
 	{
+		if(maxlen[n] == 0) continue;
 		for (k = 0; k + 1 < maxlen[n]; k++)
 		{
-			for (j = 0; j < states; j++)
+			sum = 0.0; // reset sum for the next time step.
+			for (j = 0; j < MAXSTATE; j++)
 			{
-//				.....
-				// Recursion step for the forward algorithm.
-				double sum = 0.0;
-				for (i = 0; i < states; i++) {
-					sum += alpha[n][k][i] * a[i][j];
-				}
-				alpha[n][k + 1][j] = sum * b[j][o[n][k + 1]];
+//				.....  added.
+                // Textbook formula(4.15).
+				tmp += alpha[n][k][i] * a[i][j];
 			}
+			// Multiply by output probability at time k+1.
+			alpha[n][k+1][j] = tmp * b[j][o[n][k+1]];
+			sum += alpha[n][k+1][j];    // accumulate for scaling.
+		}
+		// Calculate and apply scaling factor for k+1.
+		scale[n][k+1] = 1.0 / sum;
+		total_log_lik += log(sum);
+
+		for (j = 0; j < MAXSTATE; j++)
+		{
+			// Normalize alpha.
+			alpha[n][k+1][j] *= scale[n][k+1];
 		}
 	}
 }
@@ -106,13 +134,11 @@ void backward_algo()
 
 	for (n = 0; n < MAXSAMPLE; n++)
 	{
-		for (i = 0; i < states; i++)
+		
+
+		for (i = 0; i < MAXSTATE; i++)
 		{
 //			.....
-			// Initialize.
-			if (maxlen[n] > 0) {
-				beta[n][maxlen[n] - 1][i] = 1.0;
-			}
 		}
 	}
 
@@ -120,15 +146,9 @@ void backward_algo()
 	{
 		for (k = maxlen[n] - 1; k > 0; k--)
 		{
-			for (i = 0; i < states; i++)
+			for (i = 0; i < MAXSTATE; i++)
 			{
 //				.....
-				// Induction.
-				double sum = 0.0;
-				for (j = 0; j < states; j++) {
-					sum += a[i][j] * b[j][o[n][k]] * beta[n][k][j];
-				}
-				beta[n][k - 1][i] = sum;
 			}
 		}
 	}
@@ -140,93 +160,15 @@ void gamma_algo()
 	double	bunbo;
 
 //	.....
-	for (n = 0; n < MAXSAMPLE; n++) {
-		if (maxlen[n] <= 1) continue;
 
-		bunbo = 0.0;
-		for (i = 0; i < states; i++) {
-			bunbo += alpha[n][maxlen[n] - 1][i];
-		}
-
-		if (bunbo == 0.0) continue;
-
-		for (k = 0; k < maxlen[n] - 1; k++) {
-			for (i = 0; i < states; i++) {
-				for (j = 0; j < states; j++) {
-					c[n][k][i][j] = (alpha[n][k][i] * a[i][j] * b[j][o[n][k + 1]] * beta[n][k + 1][j]) / bunbo;
-				}
-			}
-		}
-	}
-
-}
-
-void sort_states(int states) {
-    int i, j, k, tmp_idx;
-    int p[MAXSTATE];
-    for (i = 0; i < states; i++) p[i] = i;
-
-    /* Bubble sort based on self-transition probability. */
-    for (i = 0; i < states - 1; i++) {
-        for (j = i + 1; j < states; j++) {
-            if (a[p[i]][p[i]] < a[p[j]][p[j]]) {
-                tmp_idx = p[i]; p[i] = p[j]; p[j] = tmp_idx;
-            }
-        }
-    }
-    /* After finding new order 'p', rearrange A, B, and PI synchronously. */
-    /* Note: Rearrange both rows and columns for matrix A. */
-	/* After determining the new order 'p'... */
-	/* Swap PI */
-	double new_pi[MAXSTATE];
-	for(i=0; i<states; i++) new_pi[i] = pi[p[i]];
-
-	/* Swap B */
-	double new_b[MAXSTATE][MAXSYMBOL];
-	for(i=0; i<states; i++)
-    for(k=0; k<MAXSYMBOL; k++) new_b[i][k] = b[p[i]][k];
-
-	/* Swap A (Rows AND Columns) */
-	double new_a[MAXSTATE][MAXSTATE];
-	for(i=0; i<states; i++)
-    for(j=0; j<states; j++) new_a[i][j] = a[p[i]][p[j]];
-
-	for(i=0; i<states; i++) {
-    pi[i] = new_pi[i];
-    for(k=0; k<MAXSYMBOL; k++) b[i][k] = new_b[i][k];
-    for(j=0; j<states; j++) a[i][j] = new_a[i][j];
-}
-}
-
-double calculate_log_likelihood(int samplecount, int states) {
-    double total_loglik = 0.0;
-    int n, i;
-    for (n = 0; n < samplecount; n++) {
-        double prob = 0.0;
-        int T = maxlen[n];
-        for (i = 0; i < states; i++) {
-            prob += alpha[n][T - 1][i]; /* Sum of forward probabilities at time T. */
-        }
-        total_loglik += log(prob); /* Add log-probability of each sample. */
-    }
-    return total_loglik;
 }
 
 int main(int argc, char *argv[])
 {
-	char *sampledirname = argv[1];    // Store sample name.
-	char *outputdir = argv[2];     // Store output directory path.
-	int states = atoi(argv[3]);    /* Set number of states from argument. */
-	int seed = atoi(argv[4]);      /* Set random seed from argument. */
-	char outputfilename[MAXLEN];
-	sprintf(outputfilename, "%s/markov_output_s%d_%d.txt", outputdir, states, seed);
-
-	srand((unsigned int)seed);      // Initialize random seed.
-
 	FILE	*samplefile;
-//	char	sampledirname[MAXLEN] = "c:/tmp/sample0";
+	char	sampledirname[MAXLEN] = "c:/tmp/sample0";
 	char	samplefilename[MAXLEN];
-//	char	outputfilename[MAXLEN] = "c:/tmp/markov_output.txt";
+	char	outputfilename[MAXLEN] = "c:/tmp/markov_output.txt";
 	char	tmp[MAXLEN];
 
 	int	i, j, k, l, m, n;
@@ -238,12 +180,8 @@ int main(int argc, char *argv[])
 	double	ibunbo[MAXSTATE];
 	double	err;
 
-
-
 	for (samplecount = 0, i = 0; i < MAXSAMPLE; i++)
 	{
-
-
 		strncpy(samplefilename, sampledirname, MAXLEN);
 		strncat(samplefilename, "/", MAXLEN);
 		sprintf(tmp, "%d", i + 1);
@@ -264,16 +202,15 @@ int main(int argc, char *argv[])
 				printf("symbol range error at sample %d, time %d\n", i, j);
 		}
 		maxlen[samplecount] = timecount;
-        totalLen += timecount; /* Accumulate total length for BIC. */
 		samplecount++;
 		fclose(samplefile);
 	}
 
 	// Initial setting
 	printf("Init a , b and pi\n");
-	for (i = 0; i < states; i++)
+	for (i = 0; i < MAXSTATE; i++)
 	{
-		for (j = 0; j < states; j++)
+		for (j = 0; j < MAXSTATE; j++)
 		{
 			a[i][j] = 1 / (double)MAXSTATE;
 		}
@@ -286,11 +223,6 @@ int main(int argc, char *argv[])
 		for (j = 0; j < MAXSYMBOL; j++)
 			b[i][j] /= bunbo;
 	}
-
-	/* Perform the first forward-backward pass to get initial alpha/beta values for Step 0. */
-	forward_algo();
-	double old_loglik = calculate_log_likelihood(samplecount, states); 
-	printf("LABEL Step LogLik DError\n"); /* Print the header for history output. */
 
 	// loop start
 	converg = 0;
@@ -306,10 +238,10 @@ int main(int argc, char *argv[])
 		gamma_algo();
 
 		//		printf("parameter update : ");
-		for (i = 0; i < states; i++)
+		for (i = 0; i < MAXSTATE; i++)
 		{
 			// update a
-			for (j = 0; j < states; j++)
+			for (j = 0; j < MAXSTATE; j++)
 			{
 				na[i][j] = 0;
 				bunbo = 0;
@@ -318,7 +250,7 @@ int main(int argc, char *argv[])
 					for (k = 0; k < maxlen[n]; k++)
 					{
 						na[i][j] += c[n][k][i][j];
-						for (l = 0; l < states; l++)
+						for (l = 0; l < MAXSTATE; l++)
 							bunbo += c[n][k][i][l];
 					}
 				}
@@ -335,12 +267,11 @@ int main(int argc, char *argv[])
 					na[i][j] /= bunbo;
 				}
 			}
-
 			// update pi
 			npi[i] = 0;
 			for (n = 0; n < MAXSAMPLE; n++)
 			{
-				for (j = 0; j < states; j++)
+				for (j = 0; j < MAXSTATE; j++)
 					npi[i] += c[n][0][i][j];
 			}
 
@@ -354,9 +285,9 @@ int main(int argc, char *argv[])
 					for (k = 0; k < maxlen[n]; k++)
 					{
 						if (o[n][k] == j)
-							for (l = 0; l < states; l++)
+							for (l = 0; l < MAXSTATE; l++)
 								nb[i][j] += c[n][k][i][l];
-						for (l = 0; l < states; l++)
+						for (l = 0; l < MAXSTATE; l++)
 							bunbo += c[n][k][i][l];
 					}
 				}
@@ -370,16 +301,16 @@ int main(int argc, char *argv[])
 			}
 		}
 		// update pi
-		for (bunbo = 0, i = 0; i < states; i++)
+		for (bunbo = 0, i = 0; i < MAXSTATE; i++)
 		{
 			bunbo += npi[i];
 		}
-		for (i = 0; i < states; i++)
+		for (i = 0; i < MAXSTATE; i++)
 			npi[i] /= bunbo;
 		//	printf("continue -> ");
-		for (i = 0; i < states; i++)
+		for (i = 0; i < MAXSTATE; i++)
 		{
-			for (j = 0; j < states; j++)
+			for (j = 0; j < MAXSTATE; j++)
 			{
 				err = fabs(a[i][j] - na[i][j]);
 				if (err / a[i][j] > ERROR)
@@ -388,7 +319,7 @@ int main(int argc, char *argv[])
 					break;
 				}
 			}
-			if (j < states)
+			if (j < MAXSTATE)
 			{
 				break;
 			}
@@ -414,7 +345,7 @@ int main(int argc, char *argv[])
 				break;
 			}
 		}
-		if (!(i < states))
+		if (!(i < MAXSTATE))
 		{
 			converg = 1;
 		}
@@ -422,9 +353,9 @@ int main(int argc, char *argv[])
 		{
 			converg = 0;
 		}
-		for (i = 0; i < states; i++)
+		for (i = 0; i < MAXSTATE; i++)
 		{
-			for (j = 0; j < states; j++)
+			for (j = 0; j < MAXSTATE; j++)
 			{
 				a[i][j] = na[i][j];
 			}
@@ -434,20 +365,7 @@ int main(int argc, char *argv[])
 			}
 			pi[i] = npi[i];
 		}
-		step++; /* Increment step count. */
-		forward_algo(); /* Prepare alpha for likelihood calculation. */
-		double current_loglik = calculate_log_likelihood(samplecount, states);
-		printf("HISTORY %d %f %f\n", step, current_loglik, current_loglik - old_loglik); /* Print history. */
-		old_loglik = current_loglik; /* Update likelihood for next step. */
 	}
 	printf("loop end and print HMM\n");
-	sort_states(states); /* Finalize state order. */
-
-	printf("LABEL SampleName States Seed Symbols TotalLen FinalLogLik Iterations\n");
-	printf("RESULTS %s %d %d %d %ld %f %d\n", 
-        sampledirname, states, seed, MAXSYMBOL, totalLen, old_loglik, step); /* Output final result for MATLAB. */
-    
-    char finalPath[MAXLEN];
-    sprintf(finalPath, "%s/markov_output_s%d_%d.txt", outputdir, states, seed); /* Generate file path. */
 	HMMprint(outputfilename);
 }

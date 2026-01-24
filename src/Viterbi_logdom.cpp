@@ -4,7 +4,7 @@
 #include <math.h>
 
 #define	MAXSAMPLE	1000
-#define	MAXSTATE	6    // Change 4 => 6.
+#define	MAXSTATE	4
 #define	MAXSYMBOL	10
 #define	MAXLEN		512
 
@@ -133,20 +133,6 @@ double viterbi(int samplenum)
 		for (j = 0; j < MAXSTATE; j++)
 		{
 //			.....
-			maxval = -1.0;
-            maxindex = 0;
-            for (k = 0; k < MAXSTATE; k++) {
-                // Calculate the probability of transitioning from the previous state k to the current state j.
-                double val = delta[samplenum][i - 1][k] * a[k][j];
-                if (val > maxval) {
-                    maxval = val;
-                    maxindex = k;
-                }
-            }
-            // Update delta with the maximum path probability and the current output probability.
-            delta[samplenum][i][j] = maxval * b[j][o[samplenum][i]];
-            // Store the index of the best previous state to allow for backtracking.
-            phi[samplenum][i][j] = maxindex;
 		}
 	}
 	for (outputprob = 0, k = 0; k < MAXSTATE; k++)
@@ -165,19 +151,10 @@ double viterbi(int samplenum)
 
 int main(int argc, char *argv[])
 {
-	if (argc < 4) {
-    	printf("Usage: %s [SampleName] [OutputDir] [TargetModelFile]\n", argv[0]);
-    	exit(1);
-	}
-	char *sampledirname = argv[1];
-	char *output_dir = argv[2];
-	char *markovfilename = argv[3];
-	// Use these variables to construct file paths later.
-
 	FILE	*samplefile;
-//	char	sampledirname[MAXLEN] = "c:/tmp/sample0";
+	char	sampledirname[MAXLEN] = "c:/tmp/sample0";
 	char	samplefilename[MAXLEN];
-//	char	markovfilename[MAXLEN] = "c:/tmp/markov_output0.txt";
+	char	markovfilename[MAXLEN] = "c:/tmp/markov_output0.txt";
 	char	tmp[MAXLEN];
 
 	int	i, j, k, l, m, n;
@@ -187,14 +164,11 @@ int main(int argc, char *argv[])
 
 	for (samplecount = 0, i = 0; i < MAXSAMPLE; i++)
 	{
-	//	strncpy(samplefilename, sampledirname, MAXLEN);
-	//	strncat(samplefilename, "/", MAXLEN);
-	//	sprintf(tmp, "%d", i + 1);
-	//	strncat(samplefilename, tmp, MAXLEN);
-	//	strncat(samplefilename, ".txt", MAXLEN);
-    	sprintf(samplefilename, "%s/%d.txt", sampledirname, i + 1);    
-		// The path format: [OutputDir]/[Index].txt.
-
+		strncpy(samplefilename, sampledirname, MAXLEN);
+		strncat(samplefilename, "/", MAXLEN);
+		sprintf(tmp, "%d", i + 1);
+		strncat(samplefilename, tmp, MAXLEN);
+		strncat(samplefilename, ".txt", MAXLEN);
 		if ((samplefile = fopen(samplefilename, "r")) == NULL)
 			continue;
 		printf("file open success : %s\n", samplefilename);
@@ -217,13 +191,11 @@ int main(int argc, char *argv[])
 	for (i = 0; i < samplecount; i++)
 	{
 		outputprob = viterbi(i);
-		// strncpy(samplefilename, sampledirname, MAXLEN);
-		// strncat(samplefilename, "/", MAXLEN);
-		// sprintf(tmp, "%d", i + 1)
-		// strncat(samplefilename, tmp, MAXLEN);
-		// strncat(samplefilename, "_out.txt", MAXLEN);	// samplefilename = "(sampledirname)/1234_out.txt"
-    	sprintf(samplefilename, "%s/%d_out.txt", output_dir, i + 1); // The path format: [OutputDir]/[Index]_out.txt.
-		
+		strncpy(samplefilename, sampledirname, MAXLEN);
+		strncat(samplefilename, "/", MAXLEN);
+		sprintf(tmp, "%d", i + 1);
+		strncat(samplefilename, tmp, MAXLEN);
+		strncat(samplefilename, "_out.txt", MAXLEN);	// samplefilename = "(sampledirname)/1234_out.txt"
 		if ((samplefile = fopen(samplefilename, "w")) == NULL)
 			continue;
 		for (j = 0; j < maxlen[i]; j++)

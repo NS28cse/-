@@ -1,55 +1,96 @@
-% run_experiments.m
-clear; clc;
+% main_autoexe.m - Automation script for HMM experiments.
 
-% Define the configuration for the experiment.
-% Set the target sample number, range of states to test, and range of random seeds.
-target_sample = 1;
+% Initialize parameters.
+samples = {'sample0', 'sample1', 'sample2', 'sample3', 'sample4'};
 states_list = 2:6;
-seeds_list = 1:10;
+num_seeds = 50;
+bin_dir = '../bin';
+results_root = '../results';
 
-% Define the paths for the executables and the base output directory.
-% Note that paths are relative to the 'analysis' folder.
-exe_bw = '..\bin\BaumWelch.exe';
-exe_vt = '..\bin\Viterbi.exe';
-base_output_dir = '..\results';
+% Create master table to store results.
+master_file = fullfile(results_root, 'master.tsv');
+master_fid = fopen(master_file, 'w');
+fprintf(master_fid, 'SampleName\tStates\tSeed\tSymbols\tTotalLen\tFinalLogLik\tIterations\tParams\tAIC\tBIC\tModelPath\tHistoryPath\n');
+fclose(master_fid);
 
-% Loop through each state size to test structural differences.
-for s = states_list
-    
-    % Loop through each random seed to account for initialization dependency.
-    for seed = seeds_list
-        
-        % Construct the specific output directory path for this condition.
-        % Structure: ../results/sampleX/state_Y/seed_Z/
-        current_dir = sprintf('%s/sample%d/state_%d/seed_%d', ...
-                              base_output_dir, target_sample, s, seed);
-        
-        % Create the directory if it does not exist.
-        if ~exist(current_dir, 'dir')
-            mkdir(current_dir);
+for s_idx = 1:length(samples)
+    sample_name = samples{s_idx};
+    fprintf('Processing sample: %s\n', sample_name);
+
+    % Create output directories.
+    output_dir = fullfile(results_root, sample_name);
+    mkdir(fullfile(output_dir, 'models'));
+    mkdir(fullfile(output_dir, 'viterbi'));
+    mkdir(fullfile(output_dir, 'history'));
+
+    best_loglik = -inf;
+    best_seed = 1;
+
+    for states = states_list
+        for seed = 1:num_seeds
+            % Execute BaumWelch.exe.
+            % Command: [SampleName] [OutputDir] [States] [Seed]
+            cmd = sprintf('"%s/BaumWelch.exe" %s %s %d %d', bin_dir, sample_name, output_dir, states, seed);
+            [status, cmdout] = system(cmd);
+            
+            if status ~= 0
+                fprintf('Error executing BaumWelch for %s, S:%d, Seed:%d.\n', sample_name, states, seed);
+                continue;
+            end
+
+            % Parse HISTORY and RESULTS from standard output.
+            lines = splitlines(cmdout);
+            history_data = [];
+            results_data = struct();
+
+            history_file = fullfile(output_dir, 'history', sprintf('history_s%d_%d.tsv', states, seed));
+            h_fid = fopen(history_file, 'w');
+            fprintf(h_fid, 'Step\tLogLik\tDError\n');
+
+            for l = 1:length(lines)
+                if startsWith(lines{l}, 'HISTORY')
+                    % Parse: HISTORY [Step] [LogLik] [DError]
+                    tokens = split(lines{l});
+                    fprintf(h_fid, '%s\t%s\t%s\n', tokens{2}, tokens{3}, tokens{4});
+                elseif startsWith(lines{l}, 'RESULTS')
+                    % Parse: RESULTS [SampleName] [States] [Seed] [Symbols] [TotalLen] [FinalLogLik] [Iterations]
+                    tokens = split(lines{l});
+                    results_data.sample = tokens{2};
+                    results_data.states = str2double(tokens{3});
+                    results_data.seed = str2double(tokens{4});
+                    results_data.symbols = str2double(tokens{5});
+                    results_data.total_len = str2double(tokens{6});
+                    results_data.final_loglik = str2double(tokens{7});
+                    results_data.iterations = str2double(tokens{8});
+                end
+            end
+            fclose(h_fid);
+
+            % Calculate Information Criteria (AIC/BIC).
+            % Number of parameters = States^2 + States * Symbols + (States - 1).
+            k = results_data.states^2 + results_data.states * results_data.symbols + (results_data.states - 1);
+            n = results_data.total_len;
+            L = results_data.final_loglik;
+            aic = 2 * k - 2 * L;
+            bic = k * log(n) - 2 * L;
+            model_path = fullfile(output_dir, 'models', sprintf('markov_output_s%d_%d.txt', states, seed));
+
+            % Append to master.tsv.
+            master_fid = fopen(master_file, 'a');
+            fprintf(master_fid, '%s\t%d\t%d\t%d\t%d\t%.6f\t%d\t%d\t%.6f\t%.6f\t%s\t%s\n', ...
+                sample_name, states, seed, results_data.symbols, n, L, results_data.iterations, k, aic, bic, model_path, history_file);
+            fclose(master_fid);
+
+            % Track best seed for Viterbi and model selection.
+            if L > best_loglik
+                best_loglik = L;
+                best_seed = seed;
+            end
         end
-        
-        % Construct the command string for Baum-Welch training.
-        % Arguments: [sample_num] [num_states] [output_folder] [seed]
-        cmd_bw = sprintf('%s %d %d "%s" %d', ...
-                         exe_bw, target_sample, s, current_dir, seed);
-        
-        % Construct the command string for Viterbi inference.
-        % Arguments: [sample_num] [output_folder]
-        cmd_vt = sprintf('%s %d "%s"', ...
-                         exe_vt, target_sample, current_dir);
-        
-        % Execute the training process and check for errors.
-        fprintf('Processing: State=%d, Seed=%d ... ', s, seed);
-        [status_bw, ~] = system(cmd_bw);
-        
-        % Execute Viterbi only if training was successful.
-        if status_bw == 0
-            system(cmd_vt);
-            fprintf('Done.\n');
-        else
-            fprintf('Failed during training.\n');
-        end
-        
+
+        % Execute Viterbi.exe for the best model of the current state count.
+        best_model = fullfile(output_dir, 'models', sprintf('markov_output_s%d_%d.txt', states, best_seed));
+        viterbi_cmd = sprintf('"%s/Viterbi.exe" %s %s %s', bin_dir, sample_name, output_dir, best_model);
+        system(viterbi_cmd);
     end
 end
