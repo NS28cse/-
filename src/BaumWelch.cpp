@@ -19,13 +19,13 @@ alpha[n][t][i] : forward probability at the state i and time t of the sample n
 beta[n][t][i] : backward probability ath teh state i and time t of the sample n
 o[n][t] : output symbol at time t of the sample n
 */
-int	maxlen[MAXSAMPLE];		/* ƒTƒ“ƒvƒ‹ƒtƒ@ƒCƒ‹‚²‚Æ‚Ì’·‚³‚ğŠi”[ */
+int	maxlen[MAXSAMPLE];		/* ï¿½Tï¿½ï¿½ï¿½vï¿½ï¿½ï¿½tï¿½@ï¿½Cï¿½ï¿½ï¿½ï¿½ï¿½Æ‚Ì’ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½iï¿½[ */
 double	a[MAXSTATE][MAXSTATE];
-double	na[MAXSTATE][MAXSTATE];		/* a‚ÌXV—p */
+double	na[MAXSTATE][MAXSTATE];		/* aï¿½ÌXï¿½Vï¿½p */
 double	b[MAXSTATE][MAXSYMBOL];
-double	nb[MAXSTATE][MAXSYMBOL];	/* b‚ÌXV—p */
+double	nb[MAXSTATE][MAXSYMBOL];	/* bï¿½ÌXï¿½Vï¿½p */
 double	pi[MAXSTATE];
-double	npi[MAXSTATE];				/* pi‚ÌXV—p */
+double	npi[MAXSTATE];				/* piï¿½ÌXï¿½Vï¿½p */
 double	alpha[MAXSAMPLE][MAXLEN][MAXSTATE];
 double	beta[MAXSAMPLE][MAXLEN][MAXSTATE];
 double	c[MAXSAMPLE][MAXLEN][MAXSTATE][MAXSTATE];
@@ -64,6 +64,8 @@ int HMMprint(char *mn)
 		fprintf(markovfile, "\n");
 	}
 	fclose(markovfile);
+
+	return 0;
 }
 
 void forward_algo()

@@ -18,7 +18,7 @@ alpha[n][t][i] : forward probability at the state i and time t of the sample n
 beta[n][t][i] : backward probability ath teh state i and time t of the sample n
 o[n][t] : output symbol at time t of the sample n
 */
-int	maxlen[MAXSAMPLE];		/* ƒTƒ“ƒvƒ‹ƒtƒ@ƒCƒ‹‚²‚Æ‚Ì’·‚³‚ðŠi”[ */
+int	maxlen[MAXSAMPLE];		/* ï¿½Tï¿½ï¿½ï¿½vï¿½ï¿½ï¿½tï¿½@ï¿½Cï¿½ï¿½ï¿½ï¿½ï¿½Æ‚Ì’ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½iï¿½[ */
 double	a[MAXSTATE][MAXSTATE];
 double	b[MAXSTATE][MAXSYMBOL];
 double	pi[MAXSTATE];
@@ -93,6 +93,7 @@ int HMMload(char *mn)
 			a[f][j] = loadval;
 			// printf("a[%d][%d] = %g\n", f, j, a[f][j]);
 		}
+		return 0;
 	}
 	printf("load loop end with %d State\n", i);
 	fclose(markovfile);
@@ -165,6 +166,7 @@ double viterbi(int samplenum)
 
 int main(int argc, char *argv[])
 {
+	// input model file and others.
 	if (argc < 6) {
     	printf("Usage: %s [SampleName] [OutputDir] [TargetModelFile] [States] [Seed]\n", argv[0]);
     	exit(1);
@@ -172,8 +174,8 @@ int main(int argc, char *argv[])
 	char *sampledirname = argv[1];
 	char *outputdir = argv[2];
 	char *markovfilename = argv[3];
-	int *states = argv[4];
-	int *seed = argv[5]
+	int states = atoi(argv[4]);
+	int seed = atoi(argv[5]);
  	// Use these variables to construct file paths later.
 
 	FILE	*samplefile;
@@ -216,6 +218,7 @@ int main(int argc, char *argv[])
 	}
 	HMMload(markovfilename);
 
+
 	for (i = 0; i < samplecount; i++)
 	{
 		outputprob = viterbi(i);
@@ -224,8 +227,8 @@ int main(int argc, char *argv[])
 		// sprintf(tmp, "%d", i + 1)
 		// strncat(samplefilename, tmp, MAXLEN);
 		// strncat(samplefilename, "_out.txt", MAXLEN);	// samplefilename = "(sampledirname)/1234_out.txt"
-    	sprintf(samplefilename, "%s/s%d_%d_out.txt", outputdir, states, seed); // The path format: [OutputDir]/[Index]_out.txt.
-		
+		sprintf(samplefilename, "%s/s%d_%d_out.txt", outputdir, states, seed); // The path format: [OutputDir]/[Index]_out.txt.
+
 		if ((samplefile = fopen(samplefilename, "w")) == NULL)
 			continue;
 		for (j = 0; j < maxlen[i]; j++)

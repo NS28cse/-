@@ -4,6 +4,63 @@
 
 clear; clc; close all;
 
+%=============================================================================-
+% compile.
+
+%% 1. Path Configuration.
+% Get the directory where this current script is located (i.e., exp_src).
+scriptPath = fileparts(mfilename('fullpath'));
+
+% Navigate one level up to get the root directory.
+rootDir = fileparts(scriptPath);
+
+% Define the source and binary directories based on the root directory.
+sourceDir = fullfile(rootDir, 'src');
+binaryDir = fullfile(rootDir, 'bin');
+
+% List the target file names (without extensions).
+targetNames = {'BaumWelch', 'Viterbi'};
+
+%% 2. Directory Preparation.
+% Check if the binary directory exists.
+if ~exist(binaryDir, 'dir')
+    fprintf('Creating output directory: %s\n', binaryDir);
+    mkdir(binaryDir);
+end
+
+%% 3. Compilation Loop.
+% Loop through each target to compile them separately.
+for i = 1:length(targetNames)
+    baseName = targetNames{i};
+    
+    % Define the full path for the input C++ file.
+    cppFile = fullfile(sourceDir, [baseName, '.cpp']);
+    
+    % Define the full path for the output Windows Executable file.
+    exeFile = fullfile(binaryDir, [baseName, '.exe']);
+    
+    % Construct the compilation command for Windows (using g++).
+    % Quotes are added to paths to handle potential spaces.
+    compileCmd = sprintf('g++ -O3 "%s" -o "%s"', cppFile, exeFile);
+    
+    % Execute the command.
+    fprintf('Compiling %s...\n', [baseName, '.cpp']);
+    [status, cmdout] = system(compileCmd);
+    
+    % Check for compilation errors.
+    if status ~= 0
+        error('Compilation failed for %s. Output:\n%s', baseName, cmdout);
+    else
+        fprintf('Success: %s created.\n', [baseName, '.exe']);
+        if ~isempty(cmdout)
+            disp(cmdout);
+        end
+    end
+end
+
+disp('Build process finished.');
+% =======================================================================
+
 %% Configuration
 % Define the target samples, state range, and number of seeds.
 targetSamples = {'sample0'};
@@ -21,6 +78,9 @@ resultBaseDir = fullfile('..', 'results');
 for sIdx = 1:length(targetSamples)
     sampleName = targetSamples{sIdx};
     fprintf('Processing %s...\n', sampleName);
+
+    % Define data directory path relative to execution folder.
+    dataDir = fullfile('..', 'data', 'raw', 'samples', sampleName);
     
     % Create directory structure as defined in requirements.
     % results/[SampleName]/models
@@ -43,7 +103,8 @@ for sIdx = 1:length(targetSamples)
         for seed = 1:numSeeds
             % Construct command for BaumWelch.exe.
             % Usage: [SampleName] [OutputDir] [States] [Seed]
-            cmd = sprintf('%s %s %s %d %d', exeBaumWelch, sampleName, modelsDir, K, seed);
+            inputDir = fullfile('..', 'data', 'raw', 'samples', sampleName);
+            cmd = sprintf('%s "%s" "%s" %d %d', exeBaumWelch, inputDir, modelsDir, K, seed);
             
             % Execute and capture stdout.
             [status, cmdout] = system(cmd);
@@ -112,7 +173,10 @@ for sIdx = 1:length(targetSamples)
             masterData{r,10}, masterData{r,11});
     end
     fclose(fidMaster);
-    
+    if isempty(masterData)
+        warning('No valid training data for %s. Skipping Viterbi.', sampleName);
+        continue;
+    end
     %% Viterbi Decoding using the Best Model
     % Find the model with Minimum BIC for this sample.
     sampleTable = cell2table(masterData, 'VariableNames', ...
@@ -126,8 +190,10 @@ for sIdx = 1:length(targetSamples)
     
 % Construct command for Viterbi.exe.
     % Usage: [SampleName] [OutputDir] [ModelPath] [States] [Seed]
-    cmdViterbi = sprintf('%s %s %s %s %d %d', ...
-        exeViterbi, sampleName, viterbiDir, bestModel.ModelPath{1}, bestModel.States, bestModel.Seed);
+    inputDir = fullfile('..', 'data', 'raw', 'samples', sampleName);
+    
+    cmdViterbi = sprintf('%s "%s" "%s" "%s" %d %d', ...
+    exeViterbi, inputDir, viterbiDir, bestModel.ModelPath{1}, bestModel.States, bestModel.Seed);
     
     [vStatus, vOut] = system(cmdViterbi);
     if vStatus ~= 0
